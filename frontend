@@ -1,0 +1,207 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+from backend_tracker import (
+    setup_database,
+    create_user_profile,
+    get_user_by_email,
+    log_new_workout,
+    get_user_workouts,
+    create_goal,
+    get_user_goals,
+    add_friend,
+    remove_friend,
+    get_user_friends,
+    get_leaderboard_data,
+    get_user_insights,
+    update_user_profile
+)
+
+# Initialize database
+setup_database()
+
+# Session state management for login
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'user_id' not in st.session_state:
+    st.session_state.user_id = None
+if 'user_name' not in st.session_state:
+    st.session_state.user_name = None
+
+def main_app():
+    st.sidebar.title("Navigation")
+    page = st.sidebar.radio("Go to", ["Dashboard", "Log Workout", "Goals", "Social"])
+    st.title("🏋️ Fitness Tracker")
+
+    if page == "Dashboard":
+        st.header("Your Dashboard")
+        
+        # Display workout history
+        st.subheader("Workout History")
+        workouts_df = get_user_workouts(st.session_state.user_id)
+        if not workouts_df.empty:
+            st.dataframe(workouts_df)
+            
+            # Progress visualization
+            st.subheader("Progress Over Time")
+            workouts_df['Date'] = pd.to_datetime(workouts_df['Date'])
+            workouts_df.set_index('Date', inplace=True)
+            st.line_chart(workouts_df)
+        else:
+            st.info("You haven't logged any workouts yet.")
+
+        # Business Insights
+        st.header("Performance Insights")
+        insights = get_user_insights(st.session_state.user_id)
+        if insights and insights['total_workouts']:
+            st.metric("Total Workouts Logged", insights['total_workouts'])
+            st.metric("Total Workout Minutes", insights['total_duration'])
+            st.metric("Average Workout Duration", f"{insights['avg_workout_duration']:.2f} minutes")
+            st.metric("First Workout Date", insights['first_workout_date'].strftime("%Y-%m-%d"))
+            st.metric("Last Workout Date", insights['last_workout_date'].strftime("%Y-%m-%d"))
+        else:
+            st.info("No insights available. Log a workout to see your stats!")
+
+    elif page == "Log Workout":
+        st.header("Log a New Workout")
+        with st.form("new_workout_form"):
+            workout_date = st.date_input("Date")
+            # Corrected line with closing parenthesis
+            duration = st.number_input("Duration (minutes)", min_value=1, value=30)
+            
+            st.subheader("Exercises Performed")
+            
+            # Dynamic exercise fields - CORRECTED
+            if 'exercises' not in st.session_state:
+                st.session_state.exercises = [{'name': '', 'sets': 1, 'reps': 1, 'weight': 0.0}]
+
+            for i, exercise in enumerate(st.session_state.exercises):
+                st.markdown(f"**Exercise {i+1}**")
+                exercise['name'] = st.text_input("Exercise Name", value=exercise['name'], key=f"name_{i}")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    exercise['sets'] = st.number_input("Sets", min_value=1, value=exercise['sets'], key=f"sets_{i}")
+                with col2:
+                    exercise['reps'] = st.number_input("Reps", min_value=1, value=exercise['reps'], key=f"reps_{i}")
+                with col3:
+                    exercise['weight'] = st.number_input("Weight (lbs)", min_value=0.0, value=exercise['weight'], key=f"weight_{i}")
+
+            add_exercise = st.form_submit_button("Add Another Exercise")
+            if add_exercise:
+                st.session_state.exercises.append({'name': '', 'sets': 1, 'reps': 1, 'weight': 0.0})
+                st.rerun()
+            
+            submit_button = st.form_submit_button("Log Workout")
+            
+            if submit_button:
+                logged = log_new_workout(st.session_state.user_id, workout_date, duration, st.session_state.exercises)
+                if logged:
+                    st.success("Workout logged successfully!")
+                    st.session_state.exercises = [{'name': '', 'sets': 1, 'reps': 1, 'weight': 0.0}]
+                    st.rerun()
+                else:
+                    st.error("Failed to log workout. Please try again.")
+
+    elif page == "Goals":
+        st.header("My Goals")
+        
+        # Display existing goals
+        goals_df = get_user_goals(st.session_state.user_id)
+        if not goals_df.empty:
+            st.dataframe(goals_df)
+        else:
+            st.info("You have no goals set yet.")
+            
+        # Add a new goal
+        st.subheader("Set a New Goal")
+        with st.form("new_goal_form"):
+            goal_description = st.text_input("Goal Description")
+            goal_submit = st.form_submit_button("Set Goal")
+            if goal_submit and goal_description:
+                if create_goal(st.session_state.user_id, goal_description):
+                    st.success("Goal set successfully!")
+                    st.rerun()
+                else:
+                    st.error("Failed to set goal.")
+
+    elif page == "Social":
+        st.header("Social & Leaderboard")
+        
+        # Display Leaderboard
+        st.subheader("Weekly Leaderboard")
+        leaderboard_df = get_leaderboard_data(st.session_state.user_id)
+        if not leaderboard_df.empty:
+            st.dataframe(leaderboard_df)
+        else:
+            st.info("No leaderboard data yet. Log some workouts or add friends!")
+            
+        # Manage Friends
+        st.subheader("My Friends")
+        friends_df = get_user_friends(st.session_state.user_id)
+        if not friends_df.empty:
+            st.dataframe(friends_df)
+        else:
+            st.info("You have no friends yet.")
+            
+        st.subheader("Add a New Friend")
+        with st.form("add_friend_form"):
+            friend_email = st.text_input("Friend's Email")
+            add_friend_submit = st.form_submit_button("Add Friend")
+            
+            if add_friend_submit and friend_email:
+                friend_user = get_user_by_email(friend_email)
+                
+                if not friend_user:
+                    st.warning("User not found. Please check the email and try again.")
+                elif friend_user['user_id'] == st.session_state.user_id:
+                    st.warning("You cannot add yourself as a friend.")
+                else:
+                    # Check if friend already exists to avoid duplication errors
+                    if not friends_df.empty and (friends_df['Email'] == friend_email).any():
+                        st.warning(f"{friend_email} is already on your friends list.")
+                    else:
+                        if add_friend(st.session_state.user_id, friend_user['user_id']):
+                            st.success(f"Successfully added {friend_user['name']} as a friend!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to add friend. An unknown error occurred.")
+                    
+def login_page():
+    st.title("Welcome to Fitness Tracker")
+    st.subheader("Login or Create Account")
+    st.subheader("Sima Rani Patra(30190)")
+
+    login_option = st.radio("Choose an option", ["Login", "Create Account"])
+
+    if login_option == "Login":
+        with st.form("login_form"):
+            email = st.text_input("Email")
+            login_submit = st.form_submit_button("Login")
+            if login_submit:
+                user = get_user_by_email(email)
+                if user:
+                    st.session_state.logged_in = True
+                    st.session_state.user_id = user['user_id']
+                    st.session_state.user_name = user['name']
+                    st.rerun()
+                else:
+                    st.error("User not found. Please create an account.")
+
+    elif login_option == "Create Account":
+        with st.form("create_account_form"):
+            name = st.text_input("Name")
+            email = st.text_input("Email")
+            weight = st.number_input("Weight (lbs)", min_value=0.0)
+            create_submit = st.form_submit_button("Create Account")
+            if create_submit:
+                if name and email:
+                    user_id = create_user_profile(name, email, weight)
+                    if user_id:
+                        st.success("Account created successfully! Please login.")
+                    else:
+                        st.error("Failed to create account. Email may already be in use.")
+
+if st.session_state.logged_in:
+    main_app()
+else:
+    login_page()
