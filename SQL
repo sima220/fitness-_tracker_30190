@@ -1,0 +1,35 @@
+CREATE TABLE users (
+    user_id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    weight NUMERIC
+);
+
+CREATE TABLE friends (
+    user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
+    friend_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, friend_id)
+);
+
+CREATE TABLE goals (
+    goal_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
+    description TEXT NOT NULL,
+    is_completed BOOLEAN DEFAULT FALSE
+);
+
+CREATE TABLE workouts (
+    workout_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
+    workout_date DATE NOT NULL,
+    duration_minutes INTEGER NOT NULL
+);
+
+CREATE TABLE exercises (
+    exercise_id SERIAL PRIMARY KEY,
+    workout_id INTEGER REFERENCES workouts(workout_id) ON DELETE CASCADE,
+    exercise_name VARCHAR(255) NOT NULL,
+    sets INTEGER,
+    reps INTEGER,
+    weight NUMERIC
+);
